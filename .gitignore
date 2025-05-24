@@ -52,3 +52,6 @@ original_masks.png
 
 # Ignore Streamlit secrets file
 .streamlit/secrets.toml
+
+# Ignore model files
+*.pth
