@@ -182,7 +182,6 @@ with tab1:
         # Segment and crop cards using SAM
         with cols_tab1[1]:
             with st.container():
-                st.write("\\n" * 10)  # Add vertical spacing to center the spinner
                 sub_cols_tab1 = st.columns([1, 2, 1])  # Add horizontal spacing with columns
                 with sub_cols_tab1[1]:
                     with st.spinner("#### 🪄 Segmenting cards..."):

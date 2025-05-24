@@ -49,3 +49,6 @@ original_masks.png
 # Keep these files
 !data/*.png
 !photos/*.jpg
+
+# Ignore Streamlit secrets file
+.streamlit/secrets.toml
