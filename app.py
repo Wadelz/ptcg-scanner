@@ -15,6 +15,30 @@ import pandas as pd
 import json
 import google.generativeai as genai
 
+# Define constants
+CLIP_INDEX_PATH = "clip.index"
+CARD_DB_PATH = "cards.csv"
+SAM_MODEL_TYPE = "vit_b"
+MASKS_IMAGE_PATH = "all_masks_with_info.png"
+GEMINI_MODEL_NAME = 'gemini-2.5-flash-preview-05-20'
+
+GEMINI_PROMPT = """This is an image of Pokémon cards.
+Please return a list of cards detected, with the following info per card:
+- Card name
+- Set name (if visible)
+- Price (if present)
+- Condition (if present, choose from: Mint, Near Mint, Lightly Played, Moderately Played, Heavily Played, Damaged, N/A)
+Return the result as a JSON array like this:
+[
+  {
+    "name": "Charizard",
+    "set": "Base Set",
+    "price": "350",
+    "condition": "Lightly Played"
+  }
+]
+Only include cards you are confident about."""
+
 # This must be the first Streamlit command
 st.set_page_config(layout="wide")
 
@@ -27,7 +51,7 @@ def initialize_models():
         return False
     
     # Download SAM model if needed
-    model_path = download_sam_model("vit_b")
+    model_path = download_sam_model(SAM_MODEL_TYPE)
     if not model_path or not os.path.exists(model_path):
         st.error(f"Failed to download SAM model. Please check your internet connection and try again.")
         return False
@@ -36,7 +60,7 @@ def initialize_models():
 
 # Load card database with price history and parse JSON
 def load_card_db():
-    card_db = pd.read_csv("cards.csv")
+    card_db = pd.read_csv(CARD_DB_PATH)
     # Ensure price_history is parsed correctly as a dictionary
     card_db["price_history"] = card_db["price_history"].apply(
         lambda x: json.loads(x) if isinstance(x, str) else x
@@ -46,7 +70,7 @@ def load_card_db():
 # Update the existing card_db loading logic
 @st.cache_resource
 def load_index():
-    index = faiss.read_index("clip.index")
+    index = faiss.read_index(CLIP_INDEX_PATH)
     card_db = load_card_db()
     return index, card_db
 
@@ -116,7 +140,7 @@ except Exception as e:
 
 # Function to call Gemini API
 def get_gemini_response(image_bytes, prompt):
-    model = genai.GenerativeModel('gemini-2.5-flash-preview-05-20')
+    model = genai.GenerativeModel(GEMINI_MODEL_NAME)
     image_parts = [
         {
             "mime_type": "image/jpeg",
@@ -133,6 +157,48 @@ def get_gemini_response(image_bytes, prompt):
     except Exception as e:
         st.error(f"Error calling Gemini API: {e}")
         return None
+
+# Reusable function for image input
+def get_image_input(key_prefix: str, help_text: str = "Upload an image or use your camera."):
+    st.markdown(f"#### {help_text}")
+
+    # Ensure session state keys for the image and its raw source ID exist
+    if f"{key_prefix}_image" not in st.session_state:
+        st.session_state[f"{key_prefix}_image"] = None
+    if f"{key_prefix}_raw_input_id" not in st.session_state:
+        st.session_state[f"{key_prefix}_raw_input_id"] = None
+
+    input_method = st.selectbox("Select input method:", ("Upload Image", "Use Camera"), key=f"{key_prefix}_input_method")
+
+    raw_input_data = None 
+
+    if input_method == "Upload Image":
+        uploaded_file = st.file_uploader("Upload an image", type=["png", "jpg", "jpeg"], key=f"{key_prefix}_uploader")
+        raw_input_data = uploaded_file
+    elif input_method == "Use Camera":
+        camera_image_bytes = st.camera_input("Take a picture", key=f"{key_prefix}_camera")
+        raw_input_data = camera_image_bytes
+    
+    new_raw_input_id = id(raw_input_data) if raw_input_data is not None else None
+    
+    # If the raw input data has changed (new upload, new photo, or cleared input)
+    if new_raw_input_id != st.session_state[f"{key_prefix}_raw_input_id"]:
+        if raw_input_data is not None:
+            try:
+                # Process and store the new image
+                st.session_state[f"{key_prefix}_image"] = Image.open(raw_input_data).convert("RGB")
+            except Exception as e:
+                st.error(f"Error opening image: {e}")
+                st.session_state[f"{key_prefix}_image"] = None
+        else:
+            # Input was cleared
+            st.session_state[f"{key_prefix}_image"] = None
+        # Update the stored ID of the raw input
+        st.session_state[f"{key_prefix}_raw_input_id"] = new_raw_input_id
+    
+    # This function no longer directly returns the image.
+    # It manages the UI and updates st.session_state[f"{key_prefix}_image"].
+    # The calling code will retrieve the image from session_state.
 
 st.title("TCG Card Recognition and Matching Tool")
 
@@ -159,19 +225,9 @@ with tab1:
     clip_model, clip_processor = load_models_tab1()
 
     # Replace the radio button with a segment control for input method selection
-    st.markdown("#### Choose an input method")
-    input_method_tab1 = st.selectbox("Select input method:", ("Upload Image", "Use Camera"), key="input_method_tab1") # Added key
+    get_image_input(key_prefix="tab1", help_text="Choose an input method for card recognition")
+    image_tab1 = st.session_state.get("tab1_image")
 
-    image_tab1 = None # Initialize image_tab1
-    if input_method_tab1 == "Upload Image":
-        uploaded_file_tab1 = st.file_uploader("Upload an image", type=["png", "jpg", "jpeg"], key="uploader_tab1") # Added key
-        if uploaded_file_tab1:
-            image_tab1 = Image.open(uploaded_file_tab1).convert("RGB")
-
-    elif input_method_tab1 == "Use Camera":
-        camera_image_tab1 = st.camera_input("Take a picture", key="camera_tab1") # Added key
-        if camera_image_tab1:
-            image_tab1 = Image.open(camera_image_tab1).convert("RGB")
 
     if image_tab1: # Check image_tab1
         # Display the captured or uploaded image
@@ -184,10 +240,10 @@ with tab1:
             with st.container():
                 sub_cols_tab1 = st.columns([1, 2, 1])  # Add horizontal spacing with columns
                 with sub_cols_tab1[1]:
-                    with st.spinner("#### 🪄 Segmenting cards..."):
-                        crops = get_card_crops(image_tab1)
-            if os.path.exists("all_masks_with_info.png"):
-                masks_image = Image.open("all_masks_with_info.png")
+                    with st.spinner("#### 🪄 Segmenting cards...\nThis might take a moment depending on the image complexity."): # Enhanced spinner message
+                        crops = get_card_crops(image_tab1) # This function might be slow, spinner is good.
+            if os.path.exists(MASKS_IMAGE_PATH): # Use constant
+                masks_image = Image.open(MASKS_IMAGE_PATH) # Use constant
                 st.image(masks_image, caption="All Masks with Info", use_column_width=True)
             else:
                 st.warning("⚠️ Masks visualization not found.")
@@ -241,49 +297,24 @@ with tab2:
     Upload an image or use your camera to capture Pokémon cards.
     Gemini Vision will attempt to identify the cards and provide details based on the following prompt:
     """)
-    gemini_prompt = """This is an image of Pokémon cards.
-Please return a list of cards detected, with the following info per card:
-- Card name
-- Set name (if visible)
-- Price (if present)
-- Condition (if present, choose from: Mint, Near Mint, Lightly Played, Moderately Played, Heavily Played, Damaged, N/A)
-Return the result as a JSON array like this:
-[
-  {
-    "name": "Charizard",
-    "set": "Base Set",
-    "price": "350",
-    "condition": "Lightly Played"
-  }
-]
-Only include cards you are confident about."""
-    st.code(gemini_prompt, language="text")
+    st.code(GEMINI_PROMPT, language="text") # Use global constant
 
-    st.markdown("#### Choose an input method for Gemini")
-    input_method_tab2 = st.selectbox("Select input method:", ("Upload Image", "Use Camera"), key="input_method_tab2")
+    get_image_input(key_prefix="tab2", help_text="Choose an input method for Gemini Vision")
+    image_tab2 = st.session_state.get("tab2_image")
 
-    image_tab2 = None
-    if input_method_tab2 == "Upload Image":
-        uploaded_file_tab2 = st.file_uploader("Upload an image for Gemini", type=["png", "jpg", "jpeg"], key="uploader_tab2")
-        if uploaded_file_tab2:
-            image_tab2 = Image.open(uploaded_file_tab2).convert("RGB")
-
-    elif input_method_tab2 == "Use Camera":
-        camera_image_tab2 = st.camera_input("Take a picture for Gemini", key="camera_tab2")
-        if camera_image_tab2:
-            image_tab2 = Image.open(camera_image_tab2).convert("RGB")
 
     if image_tab2:
-        st.image(image_tab2, caption="Image for Gemini Analysis", use_column_width=True)
+        # Display the captured or uploaded image
+        st.image(image_tab2, caption="Image for Gemini Analysis", use_column_width=True) # Display original image
 
         if st.button("Analyze with Gemini", key="gemini_button"):
             with st.spinner("#### 🧠 Gemini is analyzing the image..."):
-                # Convert PIL Image to bytes
+                # Convert PIL Image to bytes using the original full-resolution image
                 buffered = BytesIO()
-                image_tab2.save(buffered, format="JPEG")
+                image_tab2.save(buffered, format="JPEG") # Use original image_tab2
                 img_bytes = buffered.getvalue()
 
-                gemini_result = get_gemini_response(img_bytes, gemini_prompt)
+                gemini_result = get_gemini_response(img_bytes, GEMINI_PROMPT) # Use global constant
 
                 if gemini_result:
                     st.subheader("Gemini Vision API Response:")
