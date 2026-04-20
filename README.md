@@ -6,6 +6,8 @@ A Python application that uses computer vision and machine learning to detect an
 
 - Card detection using Segment Anything Model (SAM)
 - Card identification using CLIP embeddings
+- OCR-based card detail extraction (name + collector fraction) from detected crops
+- Automatic web price search link generation from extracted card text
 - Support for multiple cards in a single image
 - Streamlit web interface for easy interaction
 - Mobile-friendly design
@@ -47,7 +49,18 @@ streamlit run app.py
 4. The app will:
    - Detect individual cards in the image
    - Identify each card using CLIP embeddings
+   - Extract OCR fields per crop (raw + normalized values for troubleshooting)
+   - Generate a deterministic web search query/link for card pricing lookup
    - Display the results with confidence scores
+
+### OCR Extraction + Search
+
+The main app tab now includes an OCR panel for each detected card crop:
+- `card name` from the top region of the crop
+- `collector number/total` from the bottom-left region
+- generated search query and clickable web search link (Google by default)
+
+This pipeline is additive and does not replace CLIP+FAISS matching.
 
 ## Project Structure
 
@@ -66,6 +79,7 @@ streamlit run app.py
 - CLIP
 - Streamlit
 - Other dependencies listed in requirements.txt
+- `pytesseract` (Python wrapper) and a local Tesseract OCR install available on your system PATH
 
 ## License
 

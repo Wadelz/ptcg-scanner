@@ -14,6 +14,12 @@ from io import BytesIO
 import pandas as pd
 import json
 import google.generativeai as genai
+from extract_card_details import (
+    CardTextExtraction,
+    WebSearchPriceProvider,
+    build_price_search_query,
+    extract_card_text_details,
+)
 
 # Define constants
 CLIP_INDEX_PATH = "clip.index"
@@ -223,6 +229,7 @@ with tab1:
 
     index, card_db = load_index()
     clip_model, clip_processor = load_models_tab1()
+    web_search_provider = WebSearchPriceProvider(engine="google")
 
     # Replace the radio button with a segment control for input method selection
     get_image_input(key_prefix="tab1", help_text="Choose an input method for card recognition")
@@ -253,12 +260,30 @@ with tab1:
 
         if num_crops > 0:
             for i, crop in enumerate(crops):
+                extraction: CardTextExtraction = extract_card_text_details(crop)
+                query_result = build_price_search_query(extraction, provider=web_search_provider)
+
                 # Create two columns for the images (cropped card and matched card)
                 img_col1, img_col2 = st.columns(2)
 
                 with img_col1:
                     st.write(f"**Card {i+1}**")
                     st.image(crop, use_column_width=True)
+
+                ocr_col, link_col = st.columns(2)
+                with ocr_col:
+                    st.markdown("#### OCR extraction (price search)")
+                    st.markdown(f"**Card name:** {extraction.card_name or 'N/A'}")
+                    if extraction.collector_number and extraction.set_total:
+                        st.markdown(f"**Collector number:** {extraction.collector_number}/{extraction.set_total}")
+                    else:
+                        st.markdown("**Collector number:** N/A")
+                    st.caption(f"Raw name OCR: {extraction.raw_name_text or '(empty)'}")
+                    st.caption(f"Raw number OCR: {extraction.raw_number_text or '(empty)'}")
+                    st.code(query_result.query, language="text")
+                with link_col:
+                    st.markdown("#### Web price lookup")
+                    st.link_button("Search card price", query_result.url)
 
                 try:
                     # Get the embedding and search for the match
