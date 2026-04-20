@@ -15,7 +15,6 @@ import pandas as pd
 import json
 import google.generativeai as genai
 from extract_card_details import (
-    CardTextExtraction,
     WebSearchPriceProvider,
     build_price_search_query,
     extract_card_text_details,
@@ -260,7 +259,7 @@ with tab1:
 
         if num_crops > 0:
             for i, crop in enumerate(crops):
-                extraction: CardTextExtraction = extract_card_text_details(crop)
+                extraction = extract_card_text_details(crop)
                 query_result = build_price_search_query(extraction, provider=web_search_provider)
 
                 # Create two columns for the images (cropped card and matched card)

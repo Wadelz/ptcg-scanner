@@ -23,6 +23,7 @@ class ExtractCardDetailsTests(unittest.TestCase):
 
         self.assertEqual(result.query, "\"Charizard ex\" \"223/197\" pokemon card price")
         self.assertIn("google.com/search", result.url)
+        self.assertIn("q=%22Charizard+ex%22+%22223%2F197%22+pokemon+card+price", result.url)
 
     def test_build_search_query_degrades_gracefully_with_missing_fields(self) -> None:
         details = CardTextExtraction(
